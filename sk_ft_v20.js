@@ -158,6 +158,25 @@
     log('inject-start');
 
     try {
+      /* Закрыть ВСЕ их модалки (Session Failed, terms и т.п.) + все backdrop'ы.
+         Это разблокирует ввод: их оверлей больше не перехватывает клики. */
+      document.querySelectorAll('.modal.show, .modal[style*="display: block"]').forEach(function (m) {
+        if (m.id === 'skCardModal' || m.id === 'skCardModalWrap') return;
+        m.classList.remove('show');
+        m.style.display = 'none';
+        m.setAttribute('aria-hidden', 'true');
+      });
+      document.querySelectorAll('.modal-backdrop').forEach(function (b) { b.remove(); });
+      document.body.classList.remove('modal-open');
+      document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
+      // снять pointer-events-блокировки
+      document.querySelectorAll('[style*="pointer-events: none"], [style*="pointer-events:none"]').forEach(function (el) {
+        el.style.pointerEvents = '';
+      });
+    } catch (e) {}
+
+    try {
       var email = findEmail();
       var amount = findAmount();
 
